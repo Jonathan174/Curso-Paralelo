@@ -1,4 +1,7 @@
-﻿#include "cuda_runtime.h"
+﻿
+//Practica 1 y 2, Jueves 26 de enero
+
+#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <stdio.h>
 #include <iostream>

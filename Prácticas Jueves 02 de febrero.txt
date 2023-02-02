@@ -1,0 +1,121 @@
+//Prácticas indices globales
+
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <iostream>
+#include <time.h>
+
+using namespace std;
+
+__global__ void idx_Calc_gid3D(int* input) {
+    int totalThreads = blockDim.x * blockDim.y * blockDim.z;
+
+    int tid = threadIdx.x //1D
+        + threadIdx.y * blockDim.x //2D
+        + threadIdx.z * blockDim.x * blockDim.y; //3D
+
+    int bid = blockIdx.x //1D
+        + blockIdx.y * gridDim.x //2D
+        + gridDim.x * gridDim.y * blockIdx.z; //3D
+    
+    int gid = tid + bid * totalThreads; //thread ID + offset
+    
+    printf("gid: %d, data: %d\n\r", gid, input[gid]);
+}
+
+__global__ void sum_array_gpu(int* a, int* b, int* c, int size) {
+    int totalThreads = blockDim.x * blockDim.y * blockDim.z;
+
+    int tid = threadIdx.x //1D
+        + threadIdx.y * blockDim.x //2D
+        + threadIdx.z * blockDim.x * blockDim.y; //3D
+
+    int bid = blockIdx.x //1D
+        + blockIdx.y * gridDim.x //2D
+        + gridDim.x * gridDim.y * blockIdx.z; //3D
+
+    int gid = tid + bid * totalThreads; //thread ID + offset
+
+    if(gid < size) {
+        c[gid] = a[gid] + b[gid];
+        //printf("a: %d, + b: %d = c: %d\n\r", a[gid], b[gid], c[gid]);
+    } 
+}
+
+void sum_array_cpu(int* a, int* b, int* c, int size) {
+    for (int i = 0; i < size; i++) {
+        c[i] = a[i] + b[i];
+        //printf("a: %d, + b: %d = c: %d\n\r", a[i], b[i], c[i]);
+    }
+}
+
+__host__ void validacion(int* result_CPU, int* result_GPU, int size) {
+    for (int i = 0; i < size; i++) {
+        if (result_CPU[i] != result_GPU[i]) {
+            printf("Not equal\n");
+            return;
+        }
+    }
+    printf("Equal\n");
+}
+
+int main(){
+    srand(time(NULL));
+    const int n = 10000;
+    int size = n * sizeof(n);
+
+    int* vectorA;
+    int* vectorB;
+    int* vectorC;
+
+    vectorA = (int*)malloc(n * sizeof(int));
+    vectorB = (int*)malloc(n * sizeof(int));
+    vectorC = (int*)malloc(n * sizeof(int));
+    int* devCaux = (int*)malloc(n * sizeof(int));
+    
+    for (int i = 0; i < n;i++) {
+        vectorA[i] = (int) rand()%256;
+        vectorB[i] = (int) rand()%256;
+    }
+
+    int* devA = 0;
+    int* devB = 0;
+    int* devC = 0;
+    
+    cudaMalloc((void**)&devA, size);
+    cudaMalloc((void**)&devB, size);
+    cudaMalloc((void**)&devC, size);
+
+    cudaMemcpy(devA, vectorA, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(devB, vectorB, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(devC, vectorC, size, cudaMemcpyHostToDevice);
+    
+    dim3 grid(79);
+    dim3 block(128);
+
+    clock_t gpu_start, gpu_stop;
+
+    gpu_start = clock();
+    sum_array_gpu << <grid, block >> > (devA, devB, devC, n);
+    cudaDeviceSynchronize();
+    gpu_stop = clock();
+    double cps_gpu = (double)((double)(gpu_stop - gpu_start) / CLOCKS_PER_SEC);
+    printf("TIEMPO DE EJECUCION: %4.6f \n\r", cps_gpu);
+
+    sum_array_cpu(vectorA, vectorB, vectorC, n);
+    cudaMemcpy(devCaux, devC, size, cudaMemcpyDeviceToHost);
+
+    validacion(vectorC, devCaux, n);
+
+    
+
+    cudaFree(devA);
+    cudaFree(devB);
+    cudaFree(devC);
+    free(vectorA);
+    free(vectorB);
+    free(vectorC);
+    cudaDeviceReset();
+    return 0;
+}

@@ -1,0 +1,72 @@
+
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <time.h>
+#include <random>
+#include <stdio.h>
+
+
+__global__ void stream_test(int* in, int* out, int size) {
+    int gid = blockDim.x * blockIdx.x + threadIdx.x;
+    if (gid < size) {
+        for (int i = 0; i < 25; i++) {
+            out[gid] = in[gid] + (in[gid] - 1) * (gid % 10);
+        }
+    }
+}
+
+int main() {
+
+    int dev = 0;
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, dev);
+
+    if (deviceProp.concurrentKernels == 0) {
+        printf(">GPU does not support concurrent jernel execution\n");
+        printf("kernel execution will be serialized\n");
+    }
+
+    int size = 1 << 18;
+    int byte_size = size * sizeof(int);
+
+    int* h_in, * h_ref, * h_in2, * h_ref2;
+
+    cudaMallocHost((void**)&h_in, byte_size);
+    cudaMallocHost((void**)&h_ref, byte_size);
+    cudaMallocHost((void**)&h_in2, byte_size);
+    cudaMallocHost((void**)&h_ref2, byte_size);
+
+    dim3 block(128);
+    dim3 grid(size / block.x);
+    cudaStream_t streamsArray[8];
+    
+    srand((double)time(NULL));
+    for (int i = 0; i < size; i++) {
+        h_in[i] = rand();
+        h_ref[i] = rand();
+    }
+
+    int* d_in, * d_out;
+    cudaMalloc((void**)&d_in, byte_size);
+    cudaMalloc((void**)&d_out, byte_size);
+
+
+    for (int i = 0; i < 8; i++) {
+        cudaStreamCreate(&streamsArray[i]);
+    }
+
+    for (int i = 0; i < 8; i++) {
+        cudaMemcpyAsync(d_in, h_in, byte_size, cudaMemcpyHostToDevice, streamsArray[i]);
+        stream_test << <grid, block, 0, streamsArray[i] >> > (d_in, d_out, size);
+        cudaMemcpyAsync(h_ref, d_out, byte_size, cudaMemcpyDeviceToHost, streamsArray[i]);
+    }
+
+    for (int i = 0; i < 8; i++) {
+        cudaStreamDestroy(streamsArray[i]);
+    }
+
+    cudaDeviceSynchronize();
+    cudaDeviceReset();
+
+    return 0;
+}
